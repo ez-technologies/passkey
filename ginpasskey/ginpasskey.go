@@ -177,6 +177,7 @@ func (h *Handlers) registerBegin(c *gin.Context) {
 		return
 	}
 	var user passkey.User
+	begin := h.Service.BeginRegistration // a passkey for the signed-in user
 	sess, err := h.Service.Session(ctx, c.Request)
 	switch {
 	case err == nil:
@@ -199,8 +200,10 @@ func (h *Handlers) registerBegin(c *gin.Context) {
 			WriteError(c, err)
 			return
 		}
+		begin = h.Service.BeginSignUp
 	}
-	id, opts, err := h.Service.BeginRegistration(ctx, user)
+	// The challenge keeps what this begin was for; finish holds to it.
+	id, opts, err := begin(ctx, user)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -214,14 +217,21 @@ func (h *Handlers) registerFinish(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	userID := ""
+	// What begin was for is kept with the challenge, and finish holds to it: a passkey begun for a
+	// signed-in user needs that user's live session here, and never becomes a sign-up.
+	var cred *passkey.Credential
+	created := false
 	sess, err := h.Service.Session(ctx, c.Request)
-	if err != nil {
-		sess = nil // nobody signed in (or locked, and begin refused that): a sign-up
-	} else {
-		userID = sess.UserID
+	switch {
+	case err == nil:
+		cred, err = h.Service.FinishRegistration(ctx, req.ChallengeID, sess.UserID, req.Credential, req.PasskeyName)
+	case passkey.IsReconfirmRequired(err):
+		// Locked since begin. The challenge is left as it is: confirm, then send this finish again.
+	default:
+		// Nobody signed in: a sign-up, or CodeSessionRequired when begin was for a signed-in user.
+		cred, err = h.Service.FinishSignUp(ctx, req.ChallengeID, req.Credential, req.PasskeyName)
+		created = true
 	}
-	cred, err := h.Service.FinishRegistration(ctx, req.ChallengeID, userID, req.Credential, req.PasskeyName)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -231,7 +241,6 @@ func (h *Handlers) registerFinish(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	created := sess == nil
 	if h.OnRegistered != nil {
 		if err := h.OnRegistered(c, user, cred, created); err != nil {
 			_ = h.Service.RemoveCredential(ctx, user.ID, cred.ID)

@@ -60,7 +60,7 @@ type Session struct {
 // Challenge is the server side of a ceremony between its begin and its finish.
 type Challenge struct {
 	ID string
-	// Kind is "register", "login" or "confirm".
+	// Kind is "register" (a passkey for a signed-in user), "signup", "login" or "confirm".
 	Kind string
 	// UserID is set when the ceremony belongs to a known user.
 	UserID    string
