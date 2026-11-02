@@ -13,11 +13,11 @@ import (
 const (
 	// CodeSessionRequired: there is no session, or it ended. The client shows sign-in.
 	CodeSessionRequired apperr.Code = "passkey.session_required"
-	// CodeReconfirmRequired: the session was idle longer than Config.ReconfirmAfter. The client
+	// CodeReconfirmRequired: the session was idle longer than the policy's ReconfirmAfter. The client
 	// asks the person to confirm with their passkey (Confirm), then goes on.
 	CodeReconfirmRequired apperr.Code = "passkey.reconfirm_required"
 	// CodeConfirmationRequired: the action is sensitive and the last confirmation is older than
-	// Config.FreshFor. The answer carries the action's name in "action". The client confirms and
+	// the policy's FreshFor. The answer carries the action's name in "action". The client confirms and
 	// retries.
 	CodeConfirmationRequired apperr.Code = "passkey.confirmation_required"
 	// CodeRejected: the passkey was not accepted. One answer for every reason (unknown, removed,

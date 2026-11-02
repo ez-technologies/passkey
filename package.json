@@ -1,6 +1,6 @@
 {
   "name": "@ez-technologies/passkey",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Passwordless sign-in with passkeys (WebAuthn): the browser and React client of the Go package github.com/ez-technologies/passkey",
   "type": "module",
   "license": "MIT",

@@ -12,6 +12,7 @@ a passkey. Your app keeps its own users; the library only needs an id and a name
 - **Sessions** in an `HttpOnly` cookie; only a hash of the token is stored.
 - **Step-up as configuration, not code**: lock a session after it sits idle for a set time, and name
   the actions that always need a fresh confirmation (`"device.add"`, `"member.approve"`, ...).
+  Change that policy while the app runs, safely, with `SetPolicy`.
 - **Stable error codes** (`passkey.reconfirm_required`, `passkey.confirmation_required`, ...) that
   the client acts on by itself.
 - **One-time codes** for people whose device cannot make a passkey: expire, work once.
@@ -36,7 +37,8 @@ authenticator.
 - [Quick start](#quick-start)
 - [How it works](#how-it-works)
 - [Recipes](#recipes): [idle lock](#lock-a-session-after-it-sits-idle) ·
-  [sensitive actions](#sensitive-actions) · [one-time codes](#one-time-codes) ·
+  [sensitive actions](#sensitive-actions) · [policy at run time](#change-the-policy-at-run-time) ·
+  [one-time codes](#one-time-codes) ·
   [GORM storage](#gorm--postgresql-storage) · [custom storage](#your-own-storage) ·
   [cookie](#cookie-options) · [without Gin](#without-gin) · [test your app in Go](#test-your-app-in-go)
 - [Options](#options) · [Error codes](#error-codes) · [Client API](#client-api)
@@ -53,7 +55,7 @@ go get github.com/ez-technologies/passkey@latest
 npm, straight from GitHub (the built files are committed, so nothing is compiled on install):
 
 ```sh
-npm install github:ez-technologies/passkey#v0.1.0
+npm install github:ez-technologies/passkey#v0.2.0
 ```
 
 ```ts
@@ -218,6 +220,28 @@ Adding and removing a passkey through the built-in routes check the actions
 list them to make those need a fresh confirmation too. In handlers of your own, call
 `svc.CheckFresh(session, "action")`.
 
+### Change the policy at run time
+
+The idle lock and the sensitive actions start as `Config` and can be changed while the service runs,
+for example when your administrators edit them in a settings screen. No rebuild, no restart:
+
+```go
+err := svc.SetPolicy(passkey.Policy{
+	ReconfirmAfter:   30 * time.Minute,                     // 0 = never lock
+	SensitiveActions: []string{"member.approve", "passkey.add"},
+	FreshFor:         5 * time.Minute,                      // 0 = the default, 5 minutes
+})
+current := svc.Policy() // the policy in use (a copy)
+```
+
+`SetPolicy` replaces the whole policy at once and is safe to call from any goroutine while requests
+run: each check reads one policy, the old or the new, never a mix. A negative duration is refused and
+the policy in use stays. The new policy applies at each session's next request: a shorter
+`ReconfirmAfter` locks a session already idle longer than it, and a newly sensitive action needs a
+confirmation made within `FreshFor`. Middleware already mounted (`RequireSession`,
+`RequireFresh(action)`) follows it. To keep the policy in your database, load it at start-up into
+`Config` and call `SetPolicy` whenever it is saved (or on a timer, when several servers share it).
+
 ### One-time codes
 
 For someone whose device cannot make a passkey, or who lost theirs. Who may create a code for whom is
@@ -341,9 +365,9 @@ The package documentation has a runnable example.
 | `Origins` | required | Full origins the browser calls from (`https://example.com`). |
 | `Cookie` | see below | Session cookie: `Name` (`passkey_session`), `Path` (`/`), `Domain` (empty), `SameSite` (Lax), `Insecure` (false). Always HttpOnly. |
 | `SessionLifetime` | 30 days | Most a session lives from sign-in. |
-| `ReconfirmAfter` | 0 (never) | Idle time after which the session needs a passkey confirmation. |
-| `SensitiveActions` | none | Action names that always need a fresh confirmation. |
-| `FreshFor` | 5 minutes | How long a confirmation counts for sensitive actions. |
+| `ReconfirmAfter` | 0 (never) | Idle time after which the session needs a passkey confirmation. Changeable with `SetPolicy`. |
+| `SensitiveActions` | none | Action names that always need a fresh confirmation. Changeable with `SetPolicy`. |
+| `FreshFor` | 5 minutes | How long a confirmation counts for sensitive actions. Changeable with `SetPolicy`. |
 | `ChallengeTimeout` | 5 minutes | Time allowed between a ceremony's begin and finish. |
 | `TouchEvery` | 1 minute | How rarely a session's last-active time is written (kept below `ReconfirmAfter`). |
 | `CodeLength` | 10 | Characters in a one-time code (about 49 bits). |

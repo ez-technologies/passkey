@@ -51,7 +51,7 @@ type Session struct {
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
 	// LastActiveAt is the last time the session was used. A session idle for longer than
-	// Config.ReconfirmAfter needs a passkey confirmation before it is used again.
+	// ReconfirmAfter (Config, or Service.SetPolicy) needs a passkey confirmation before it is used again.
 	LastActiveAt time.Time
 	// ConfirmedAt is the last time the person proved it was them (sign-in or confirmation).
 	ConfirmedAt time.Time

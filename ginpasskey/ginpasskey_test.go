@@ -307,6 +307,27 @@ func TestSensitiveActionRoute(t *testing.T) {
 	want(t, status, out, 204, "")
 }
 
+func TestPolicyChangedAtRunTime(t *testing.T) {
+	a := newApp(t, nil, nil)
+	a.signUp("ada")
+	a.now = a.now.Add(20 * time.Minute)
+	status, out := a.call("POST", "/api/members/approve", nil)
+	want(t, status, out, 204, "")
+	// The same routes, a new policy: the action is now sensitive and the session locks when idle.
+	if err := a.svc.SetPolicy(passkey.Policy{SensitiveActions: []string{"member.approve"}, ReconfirmAfter: 30 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	status, out = a.call("POST", "/api/members/approve", nil)
+	want(t, status, out, 403, string(passkey.CodeConfirmationRequired))
+	a.now = a.now.Add(31 * time.Minute)
+	status, out = a.call("GET", "/api/me", nil)
+	want(t, status, out, 401, string(passkey.CodeReconfirmRequired))
+	status, out = a.ceremony("confirm", a.auth.SignIn, nil, nil)
+	want(t, status, out, 200, "")
+	status, out = a.call("POST", "/api/members/approve", nil)
+	want(t, status, out, 204, "")
+}
+
 func TestIdleLockAndConfirm(t *testing.T) {
 	a := newApp(t, func(c *passkey.Config) { c.ReconfirmAfter = 10 * time.Minute }, nil)
 	a.signUp("ada")
