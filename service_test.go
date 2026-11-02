@@ -12,8 +12,8 @@ import (
 	"github.com/ez-technologies/apperr"
 
 	"github.com/ez-technologies/passkey"
-	"github.com/ez-technologies/passkey/internal/softauthn"
 	"github.com/ez-technologies/passkey/memstore"
+	"github.com/ez-technologies/passkey/passkeytest"
 )
 
 const origin = "https://app.example.com"
@@ -22,13 +22,13 @@ type harness struct {
 	t    *testing.T
 	svc  *passkey.Service
 	now  time.Time
-	auth *softauthn.Authenticator
+	auth *passkeytest.Authenticator
 	ctx  context.Context
 }
 
 func newHarness(t *testing.T, mod func(*passkey.Config)) *harness {
 	t.Helper()
-	h := &harness{t: t, now: time.Now(), auth: softauthn.New(origin), ctx: context.Background()}
+	h := &harness{t: t, now: time.Now(), auth: passkeytest.New(origin), ctx: context.Background()}
 	cfg := passkey.Config{RPID: "app.example.com", RPName: "Example", Origins: []string{origin}, Now: func() time.Time { return h.now }}
 	if mod != nil {
 		mod(&cfg)
@@ -126,7 +126,7 @@ func TestSecondRegistrationKeepsHandleAndUpdatesName(t *testing.T) {
 	h := newHarness(t, nil)
 	h.register("u1")
 	before, _ := h.svc.Store().UserByID(h.ctx, "u1")
-	h.auth = softauthn.New(origin) // another device
+	h.auth = passkeytest.New(origin) // another device
 	ch, opts, err := h.svc.BeginRegistration(h.ctx, passkey.User{ID: "u1", DisplayName: "New name"})
 	must(t, err)
 	resp, err := h.auth.Register(opts)
@@ -187,7 +187,7 @@ func TestSignUp(t *testing.T) {
 func TestAddPasskeyWithoutSessionIsNotASignUp(t *testing.T) {
 	h := newHarness(t, nil)
 	h.register("u1")
-	h.auth = softauthn.New(origin) // another device
+	h.auth = passkeytest.New(origin) // another device
 	// Without the user's session, finishing a passkey begun for them is never a sign-up.
 	for name, finish := range map[string]func(ch string, resp []byte) error{
 		"FinishRegistration": func(ch string, resp []byte) error {
@@ -420,7 +420,7 @@ func TestSensitiveActions(t *testing.T) {
 func TestConfirmNeedsThePersonsOwnPasskey(t *testing.T) {
 	h := newHarness(t, nil)
 	h.register("u1")
-	h.auth = softauthn.New(origin)
+	h.auth = passkeytest.New(origin)
 	h.register("u2")
 	r, _ := h.startSession("u1", nil)
 	sess, _ := h.svc.Session(h.ctx, r)

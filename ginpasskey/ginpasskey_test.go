@@ -17,8 +17,8 @@ import (
 
 	"github.com/ez-technologies/passkey"
 	"github.com/ez-technologies/passkey/ginpasskey"
-	"github.com/ez-technologies/passkey/internal/softauthn"
 	"github.com/ez-technologies/passkey/memstore"
+	"github.com/ez-technologies/passkey/passkeytest"
 )
 
 const origin = "http://localhost:5173"
@@ -28,14 +28,14 @@ type app struct {
 	svc    *passkey.Service
 	srv    *httptest.Server
 	client *http.Client
-	auth   *softauthn.Authenticator
+	auth   *passkeytest.Authenticator
 	now    time.Time
 }
 
 func newApp(t *testing.T, mod func(*passkey.Config), h *ginpasskey.Handlers) *app {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	a := &app{t: t, auth: softauthn.New(origin), now: time.Now()}
+	a := &app{t: t, auth: passkeytest.New(origin), now: time.Now()}
 	cfg := passkey.Config{
 		RPID: "localhost", RPName: "Test", Origins: []string{origin},
 		Cookie: passkey.CookieConfig{Insecure: true}, Now: func() time.Time { return a.now },
@@ -181,7 +181,7 @@ func TestAddSecondPasskeyNeedsFreshConfirmation(t *testing.T) {
 	a := newApp(t, func(c *passkey.Config) { c.SensitiveActions = []string{ginpasskey.ActionAddPasskey} }, nil)
 	a.signUp("ada")
 	a.now = a.now.Add(10 * time.Minute)
-	phone := softauthn.New(origin)
+	phone := passkeytest.New(origin)
 	status, out := a.ceremony("register", phone.Register, nil, nil)
 	want(t, status, out, 403, string(passkey.CodeConfirmationRequired))
 	if out["action"] != ginpasskey.ActionAddPasskey {
@@ -233,7 +233,7 @@ func TestAddPasskeyAfterTheSessionEndedIsNotASignUp(t *testing.T) {
 	}
 	a := newApp(t, nil, h)
 	a.signUp("ada")
-	finish := a.begin("register", softauthn.New(origin).Register)
+	finish := a.begin("register", passkeytest.New(origin).Register)
 	status, _ := a.call("POST", "/auth/passkey/logout", nil) // the session ends between begin and finish
 	want(t, status, nil, 204, "")
 	status, out := a.call("POST", "/auth/passkey/register/finish", finish)
@@ -263,7 +263,7 @@ func TestAddPasskeyAfterTheSessionLockedNeedsConfirm(t *testing.T) {
 	a := newApp(t, func(c *passkey.Config) { c.ReconfirmAfter = time.Minute }, h)
 	a.signUp("ada")
 	before := a.client.Jar.Cookies(mustURL(a.srv.URL))
-	phone := softauthn.New(origin)
+	phone := passkeytest.New(origin)
 	finish := a.begin("register", phone.Register)
 	a.now = a.now.Add(2 * time.Minute) // the session locks between begin and finish
 	status, out := a.call("POST", "/auth/passkey/register/finish", finish)
