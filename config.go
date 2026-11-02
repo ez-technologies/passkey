@@ -22,6 +22,9 @@ type Config struct {
 	// SessionLifetime is the most a session lives from sign-in. Default 30 days.
 	SessionLifetime time.Duration
 
+	// ReconfirmAfter, SensitiveActions and FreshFor are the step-up policy the Service starts with;
+	// Service.SetPolicy changes it while the Service runs.
+
 	// ReconfirmAfter is how long a session may sit idle before the person confirms with their
 	// passkey again (CodeReconfirmRequired). 0 means never.
 	ReconfirmAfter time.Duration
@@ -35,7 +38,7 @@ type Config struct {
 	// ChallengeTimeout is how long a ceremony may take between begin and finish. Default 5 minutes.
 	ChallengeTimeout time.Duration
 	// TouchEvery is how rarely a session's LastActiveAt is written: at most once per this long.
-	// Default 1 minute. It must be shorter than ReconfirmAfter.
+	// Default 1 minute. When it is not shorter than ReconfirmAfter, half of ReconfirmAfter is used.
 	TouchEvery time.Duration
 	// CodeLength is the number of characters of a one-time code. Default 10 (about 49 bits).
 	CodeLength int
@@ -76,6 +79,9 @@ func (c *Config) withDefaults() (Config, error) {
 	if out.SessionLifetime <= 0 {
 		out.SessionLifetime = 30 * 24 * time.Hour
 	}
+	if out.ReconfirmAfter < 0 {
+		out.ReconfirmAfter = 0
+	}
 	if out.FreshFor <= 0 {
 		out.FreshFor = 5 * time.Minute
 	}
@@ -84,9 +90,6 @@ func (c *Config) withDefaults() (Config, error) {
 	}
 	if out.TouchEvery <= 0 {
 		out.TouchEvery = time.Minute
-	}
-	if out.ReconfirmAfter > 0 && out.TouchEvery >= out.ReconfirmAfter {
-		out.TouchEvery = out.ReconfirmAfter / 2
 	}
 	if out.CodeLength <= 0 {
 		out.CodeLength = 10

@@ -55,7 +55,7 @@ func (s *Service) setCookie(w http.ResponseWriter, value string, maxAge int) {
 // Session reads the session of a request.
 //
 // It returns CodeSessionRequired when there is none or it has ended. When the session has been idle
-// longer than Config.ReconfirmAfter it returns the session AND an error with CodeReconfirmRequired:
+// longer than the policy's ReconfirmAfter (see SetPolicy) it returns the session AND an error with CodeReconfirmRequired:
 // the session is locked, and only the confirm ceremony (BeginConfirm, FinishConfirm) and sign-out
 // may use it. Otherwise the session is marked active now (written at most once per TouchEvery).
 func (s *Service) Session(ctx context.Context, r *http.Request) (*Session, error) {
@@ -70,15 +70,15 @@ func (s *Service) Session(ctx context.Context, r *http.Request) (*Session, error
 	if err != nil {
 		return nil, err
 	}
-	now := s.cfg.Now()
+	now, p := s.cfg.Now(), s.policy.Load()
 	if !now.Before(sess.ExpiresAt) {
 		_ = s.store.DeleteSession(ctx, sess.ID)
 		return nil, errSessionRequired()
 	}
-	if s.cfg.ReconfirmAfter > 0 && now.Sub(sess.LastActiveAt) > s.cfg.ReconfirmAfter {
+	if p.ReconfirmAfter > 0 && now.Sub(sess.LastActiveAt) > p.ReconfirmAfter {
 		return sess, errReconfirm()
 	}
-	if now.Sub(sess.LastActiveAt) >= s.cfg.TouchEvery {
+	if now.Sub(sess.LastActiveAt) >= p.touchEvery {
 		sess.LastActiveAt = now
 		if err := s.store.TouchSession(ctx, sess); err != nil {
 			return nil, err
@@ -102,22 +102,23 @@ func (s *Service) SignOutEverywhere(ctx context.Context, userID string) error {
 	return s.store.DeleteUserSessions(ctx, userID)
 }
 
-// IsSensitive reports whether action is one of Config.SensitiveActions.
+// IsSensitive reports whether action is one of the policy's SensitiveActions.
 func (s *Service) IsSensitive(action string) bool {
-	return slices.Contains(s.cfg.SensitiveActions, action)
+	return slices.Contains(s.policy.Load().SensitiveActions, action)
 }
 
-// CheckFresh says whether sess may do action now. An action that is not in
-// Config.SensitiveActions always may. A sensitive one needs the last confirmation to be at most
-// Config.FreshFor old; otherwise the answer is CodeConfirmationRequired, carrying the action name.
+// CheckFresh says whether sess may do action now, under the current Policy. An action that is not
+// in its SensitiveActions always may. A sensitive one needs the last confirmation to be at most
+// FreshFor old; otherwise the answer is CodeConfirmationRequired, carrying the action name.
 func (s *Service) CheckFresh(sess *Session, action string) error {
 	if sess == nil {
 		return errSessionRequired()
 	}
-	if !s.IsSensitive(action) {
+	p := s.policy.Load() // one policy for the whole answer, also when SetPolicy runs meanwhile
+	if !slices.Contains(p.SensitiveActions, action) {
 		return nil
 	}
-	if s.cfg.Now().Sub(sess.ConfirmedAt) > s.cfg.FreshFor {
+	if s.cfg.Now().Sub(sess.ConfirmedAt) > p.FreshFor {
 		return errConfirmation(action)
 	}
 	return nil

@@ -23,7 +23,7 @@ import (
 const sessionKey = "passkey.session"
 
 // ActionAddPasskey is the action checked with CheckFresh when a signed-in user adds a passkey, and
-// ActionRemovePasskey when they remove one. List them in Config.SensitiveActions to make them
+// ActionRemovePasskey when they remove one. List them in the SensitiveActions of the policy to make them
 // need a fresh confirmation.
 const (
 	ActionAddPasskey    = "passkey.add"
@@ -66,7 +66,7 @@ func RequireSession(svc *passkey.Service) gin.HandlerFunc {
 }
 
 // RequireFresh lets a request through only when action may be done now (see
-// passkey.Service.CheckFresh): an action not in Config.SensitiveActions always may, a sensitive one
+// passkey.Service.CheckFresh): an action not in the policy's SensitiveActions always may, a sensitive one
 // needs a recent confirmation, and is otherwise answered 403 with passkey.confirmation_required and
 // "action". It reads the session itself when RequireSession did not run before it.
 func RequireFresh(svc *passkey.Service, action string) gin.HandlerFunc {

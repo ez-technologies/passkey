@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ez-technologies/apperr"
@@ -28,9 +29,10 @@ import (
 
 // Service is passkey sign-in for one app. It is safe for concurrent use.
 type Service struct {
-	cfg   Config
-	store Store
-	web   *webauthn.WebAuthn
+	cfg    Config
+	store  Store
+	web    *webauthn.WebAuthn
+	policy atomic.Pointer[policy]
 }
 
 // New builds a Service.
@@ -60,11 +62,23 @@ func New(cfg Config, store Store) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("passkey: %w", err)
 	}
-	return &Service{cfg: c, store: store, web: web}, nil
+	p, err := newPolicy(Policy{ReconfirmAfter: c.ReconfirmAfter, SensitiveActions: c.SensitiveActions, FreshFor: c.FreshFor}, c.TouchEvery)
+	if err != nil {
+		return nil, err
+	}
+	svc := &Service{cfg: c, store: store, web: web}
+	svc.policy.Store(p)
+	return svc, nil
 }
 
-// Config is the configuration in use, defaults filled in.
-func (s *Service) Config() Config { return s.cfg }
+// Config is the configuration in use, defaults filled in. Its policy fields (ReconfirmAfter,
+// SensitiveActions, FreshFor) and TouchEvery are those of the current Policy.
+func (s *Service) Config() Config {
+	c, p := s.cfg, s.policy.Load()
+	c.ReconfirmAfter, c.SensitiveActions, c.FreshFor = p.ReconfirmAfter, slices.Clone(p.SensitiveActions), p.FreshFor
+	c.TouchEvery = p.touchEvery
+	return c
+}
 
 // Store is the store the Service was built with.
 func (s *Service) Store() Store { return s.store }
