@@ -1,0 +1,35 @@
+{
+  "name": "@ez-technologies/passkey",
+  "version": "0.1.0",
+  "description": "Passwordless sign-in with passkeys (WebAuthn): the browser and React client of the Go package github.com/ez-technologies/passkey",
+  "type": "module",
+  "license": "MIT",
+  "repository": "github:ez-technologies/passkey",
+  "keywords": ["passkey", "webauthn", "fido2", "passwordless", "react"],
+  "exports": {
+    ".": {
+      "types": "./client/dist/index.d.ts",
+      "import": "./client/dist/index.js"
+    },
+    "./react": {
+      "types": "./client/dist/react.d.ts",
+      "import": "./client/dist/react.js"
+    }
+  },
+  "types": "./client/dist/index.d.ts",
+  "files": [
+    "client/dist"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

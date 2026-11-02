@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Passkey demo</title>
+  <script type="importmap">
+    { "imports": { "@simplewebauthn/browser": "/vendor/simplewebauthn/index.js" } }
+  </script>
+  <style>
+    :root { --ink: #1d2433; --muted: #5d6779; --line: #e3e7ee; --brand: #3a5bd9; --brand-ink: #fff; --warn: #a15c00; --bg: #f5f7fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+    main { max-width: 440px; margin: 48px auto; padding: 0 16px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    header svg { width: 32px; height: 32px; }
+    h1 { font-size: 20px; margin: 0; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 24px; box-shadow: 0 1px 2px rgba(20, 30, 60, .04); }
+    h2 { font-size: 18px; margin: 0 0 4px; }
+    p { margin: 0 0 16px; color: var(--muted); }
+    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    input { width: 100%; padding: 10px 12px; font: inherit; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; }
+    button { width: 100%; padding: 11px 14px; font: inherit; font-weight: 600; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+    button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+    button:disabled { opacity: .6; cursor: progress; }
+    .stack > * + * { margin-top: 10px; }
+    .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 18px 0; }
+    .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+    .row { display: flex; gap: 8px; } .row input { margin: 0; } .row button { width: auto; white-space: nowrap; }
+    .msg { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; display: none; }
+    .msg.show { display: block; } .msg.error { background: #fdecec; color: #8a1c1c; } .msg.info { background: #eef2ff; color: #27378f; }
+    .code { font: 600 22px/1.2 ui-monospace, monospace; letter-spacing: 2px; text-align: center; padding: 14px; background: var(--bg); border-radius: 8px; margin: 10px 0 4px; }
+    ul.keys { list-style: none; padding: 0; margin: 0 0 16px; border: 1px solid var(--line); border-radius: 8px; }
+    ul.keys li { padding: 10px 12px; display: flex; justify-content: space-between; font-size: 14px; }
+    ul.keys li + li { border-top: 1px solid var(--line); }
+    .tag { font-size: 12px; color: var(--brand); font-weight: 600; }
+    .lock { text-align: center; } .lock svg { width: 48px; height: 48px; color: var(--warn); }
+    .hidden { display: none; }
+    footer { margin-top: 16px; font-size: 13px; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 24 24" fill="none" stroke="#3a5bd9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="4"/><path d="M2 21v-1a6 6 0 0 1 9-5.2"/><circle cx="17" cy="15" r="2.5"/><path d="M17 17.5V22m0-2h2"/></svg>
+    <h1>Passkey demo</h1>
+  </header>
+
+  <section id="loading" class="card"><p>Loading…</p></section>
+
+  <section id="signed-out" class="card hidden">
+    <h2>Welcome</h2>
+    <p>No password: your device keeps a passkey, unlocked with your fingerprint, face or PIN.</p>
+    <div class="stack">
+      <button id="sign-in" class="primary">Sign in with a passkey</button>
+    </div>
+    <div class="or">new here?</div>
+    <label for="name">Your name</label>
+    <input id="name" autocomplete="username webauthn" placeholder="Ada Lovelace">
+    <button id="sign-up">Create an account with a passkey</button>
+    <div class="or">or</div>
+    <label for="code">One-time code</label>
+    <div class="row"><input id="code" placeholder="XXXXX-XXXXX" autocomplete="one-time-code"><button id="redeem">Use code</button></div>
+    <div id="out-msg" class="msg"></div>
+  </section>
+
+  <section id="signed-in" class="card hidden">
+    <h2 id="hello">Hello</h2>
+    <p id="since">You are signed in.</p>
+    <label>Your passkeys</label>
+    <ul id="keys" class="keys"></ul>
+    <div class="stack">
+      <button id="add-key">Add a passkey on this device</button>
+      <button id="make-code" class="primary">Create a one-time code (sensitive)</button>
+      <div id="code-box" class="hidden"><div id="code-value" class="code"></div><p id="code-note" style="text-align:center;font-size:13px"></p></div>
+      <button id="sign-out">Sign out</button>
+    </div>
+    <div id="in-msg" class="msg"></div>
+  </section>
+
+  <section id="locked" class="card lock hidden">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    <h2>Still you?</h2>
+    <p>The session was idle for a while. Confirm with your passkey to go on.</p>
+    <div class="stack">
+      <button id="unlock" class="primary">Confirm it is me</button>
+      <button id="locked-out">Sign out</button>
+    </div>
+    <div id="lock-msg" class="msg"></div>
+  </section>
+
+  <footer id="settings"></footer>
+</main>
+
+<script type="module">
+  import { createPasskeyClient, errorCode, ErrorCodes } from '/client/index.js'
+
+  const passkey = createPasskeyClient()
+  const $ = (id) => document.getElementById(id)
+  const views = ['loading', 'signed-out', 'signed-in', 'locked']
+
+  function show(view) {
+    for (const v of views) $(v).classList.toggle('hidden', v !== view)
+  }
+
+  function say(box, text, kind = 'error') {
+    const el = $(box)
+    el.textContent = text
+    el.className = 'msg show ' + kind
+  }
+
+  function clear() {
+    for (const id of ['out-msg', 'in-msg', 'lock-msg']) $(id).className = 'msg'
+  }
+
+  async function busy(button, fn) {
+    button.disabled = true
+    clear()
+    try { await fn() } finally { button.disabled = false }
+  }
+
+  function explain(err) {
+    if (errorCode(err) === 'cancelled') return 'The passkey prompt was closed.'
+    return err.message || String(err)
+  }
+
+  async function render() {
+    const state = await passkey.getSession()
+    if (state.status === 'signed-out') return show('signed-out')
+    if (state.status === 'locked') return show('locked')
+    const { session } = state
+    $('hello').textContent = 'Hello, ' + session.user.displayName
+    $('since').textContent = 'Signed in until ' + new Date(session.expiresAt).toLocaleDateString() + '.'
+    const keys = session.hasPasskey ? await passkey.listPasskeys() : []
+    $('keys').replaceChildren(...(keys.length ? keys : [null]).map((k) => {
+      const li = document.createElement('li')
+      if (!k) { li.textContent = 'None yet: add one below.'; return li }
+      li.innerHTML = '<span></span><span class="tag"></span>'
+      li.firstChild.textContent = k.name || 'Passkey'
+      li.lastChild.textContent = k.current ? 'this session' : 'added ' + new Date(k.createdAt).toLocaleDateString()
+      return li
+    }))
+    show('signed-in')
+  }
+
+  $('sign-in').onclick = (e) => busy(e.target, async () => {
+    try { await passkey.signIn(); await render() } catch (err) { say('out-msg', explain(err)) }
+  })
+
+  $('sign-up').onclick = (e) => busy(e.target, async () => {
+    const name = $('name').value.trim()
+    try {
+      await passkey.register({ name, displayName: name, passkeyName: 'This device' })
+      await render()
+    } catch (err) { say('out-msg', explain(err)) }
+  })
+
+  $('redeem').onclick = (e) => busy(e.target, async () => {
+    try { await passkey.redeemCode($('code').value); await render() } catch (err) { say('out-msg', explain(err)) }
+  })
+
+  $('add-key').onclick = (e) => busy(e.target, async () => {
+    try {
+      await passkey.withConfirmation(() => passkey.register({ passkeyName: 'Another passkey' }))
+      await render()
+      say('in-msg', 'Passkey added.', 'info')
+    } catch (err) { say('in-msg', explain(err)) }
+  })
+
+  // A sensitive action: fetchWithConfirmation asks for the passkey when the server says so, then retries.
+  $('make-code').onclick = (e) => busy(e.target, async () => {
+    try {
+      const res = await passkey.fetch('/api/codes', { method: 'POST' })
+      if (!res.ok) throw new Error((await res.json()).error)
+      const { code, expiresAt } = await res.json()
+      $('code-value').textContent = code
+      $('code-note').textContent = 'Works once, until ' + new Date(expiresAt).toLocaleTimeString() + '.'
+      $('code-box').classList.remove('hidden')
+    } catch (err) {
+      if (errorCode(err) === ErrorCodes.sessionRequired) return render()
+      say('in-msg', explain(err))
+    }
+  })
+
+  for (const id of ['sign-out', 'locked-out']) {
+    $(id).onclick = (e) => busy(e.target, async () => {
+      await passkey.signOut()
+      $('code-box').classList.add('hidden')
+      await render()
+    })
+  }
+
+  $('unlock').onclick = (e) => busy(e.target, async () => {
+    try { await passkey.confirm(); await render() } catch (err) { say('lock-msg', explain(err)) }
+  })
+
+  render().catch((err) => { show('signed-out'); say('out-msg', explain(err)) })
+  fetch('/api/settings').then((r) => r.ok ? r.json() : null).then((s) => {
+    if (s) $('settings').textContent = `Locks after ${s.idle} idle · sensitive actions need a confirmation within ${s.fresh}`
+  })
+</script>
+</body>
+</html>

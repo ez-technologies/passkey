@@ -1,0 +1,24 @@
+{
+  "name": "passkey-client-dev",
+  "private": true,
+  "description": "Development of the TypeScript client. The published package is the package.json at the repository root, which ships client/dist.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "jsdom": "^30.1.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "~7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
