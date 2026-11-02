@@ -18,6 +18,8 @@ a passkey. Your app keeps its own users; the library only needs an id and a name
 - **Storage is an interface**: an in-memory store and a GORM (PostgreSQL) store ship with it, and a
   conformance suite checks your own.
 - **Gin** routes and middleware: `RequireSession`, `RequireFresh(action)`.
+- **Go test helper** (`passkeytest`): a software passkey device, so your own tests can sign up, sign
+  in and confirm without a browser.
 - **TypeScript client** with `register()`, `signIn()`, `confirm()` and a React hook, on
   [@simplewebauthn/browser](https://simplewebauthn.dev).
 
@@ -36,7 +38,7 @@ authenticator.
 - [Recipes](#recipes): [idle lock](#lock-a-session-after-it-sits-idle) ·
   [sensitive actions](#sensitive-actions) · [one-time codes](#one-time-codes) ·
   [GORM storage](#gorm--postgresql-storage) · [custom storage](#your-own-storage) ·
-  [cookie](#cookie-options) · [without Gin](#without-gin)
+  [cookie](#cookie-options) · [without Gin](#without-gin) · [test your app in Go](#test-your-app-in-go)
 - [Options](#options) · [Error codes](#error-codes) · [Client API](#client-api)
 - [Run the demo](#run-the-demo) · [Security notes](#security-notes)
 
@@ -293,6 +295,40 @@ id, opts, err = svc.BeginRegistration(ctx, user)  // then svc.FinishRegistration
 err = svc.CheckFresh(sess, "member.approve")      // nil, or CodeConfirmationRequired
 http.Error(w, err.Error(), passkey.HTTPStatus(err)) // 401 / 403 / 400 / 500
 ```
+
+### Test your app in Go
+
+`passkeytest` is a software passkey device for your own Go tests: no browser, no real authenticator.
+`passkeytest.New(origin)` makes one (`origin` is one of `Config.Origins`); each `Authenticator` is
+one device and keeps its passkeys.
+
+```go
+import "github.com/ez-technologies/passkey/passkeytest"
+
+func TestApprove(t *testing.T) {
+	ctx := t.Context()
+	svc, _ := passkey.New(cfg, memstore.New())
+	laptop := passkeytest.New("https://example.com")
+
+	_, err := passkeytest.SignUp(ctx, svc, laptop, passkey.User{ID: "u1", Name: "ada"}) // BeginSignUp + FinishSignUp
+	user, cred, err := passkeytest.SignIn(ctx, svc, laptop)                               // BeginLogin + FinishLogin
+	sess, err := svc.StartSession(ctx, httptest.NewRecorder(), user.ID, cred.ID)
+	err = passkeytest.Confirm(ctx, svc, laptop, sess)                                     // BeginConfirm + FinishConfirm
+	_, err = passkeytest.Register(ctx, svc, passkeytest.New("https://example.com"), passkey.User{ID: "u1"}) // a second device
+	// ...
+}
+```
+
+Through HTTP (the `ginpasskey` routes or your own), the device answers the begin step's options
+and you post its answer to the finish step:
+
+```go
+// POST register/begin (or login/begin, confirm/begin) answered {challengeId, options}
+answer, err := laptop.Register(options) // laptop.SignIn(options) for login and confirm
+// POST register/finish with {"challengeId": challengeId, "credential": answer}
+```
+
+The package documentation has a runnable example.
 
 ## Options
 

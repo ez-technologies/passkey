@@ -1,6 +1,4 @@
-// Package softauthn is a software passkey authenticator for tests: it answers the options a server
-// sends with the JSON a browser would send back, as @simplewebauthn/browser does.
-package softauthn
+package passkeytest
 
 import (
 	"bytes"
@@ -28,13 +26,18 @@ type Credential struct {
 	SignCount  uint32
 }
 
-// Authenticator holds passkeys and signs for one origin.
+// Authenticator is a software passkey device: it answers the options a server sends with the JSON a
+// browser would send back, as startRegistration and startAuthentication of @simplewebauthn/browser
+// do. It holds passkeys and signs for one origin. One Authenticator is one device: use another to
+// add a second passkey to a user (a device never has two passkeys of the same user).
+//
+// It is not safe for concurrent use.
 type Authenticator struct {
 	Origin      string
 	Credentials []*Credential
 }
 
-// New makes an authenticator that answers as origin.
+// New makes an authenticator that answers as origin, which must be one of Config.Origins.
 func New(origin string) *Authenticator { return &Authenticator{Origin: origin} }
 
 type creationOptions struct {
@@ -72,13 +75,13 @@ func (a *Authenticator) Register(optionsJSON []byte) ([]byte, error) {
 	for _, ex := range o.Exclude {
 		for _, c := range a.Credentials {
 			if ex.ID == b64.EncodeToString(c.ID) {
-				return nil, errors.New("softauthn: this authenticator already has a passkey of that user")
+				return nil, errors.New("passkeytest: this authenticator already has a passkey of that user")
 			}
 		}
 	}
 	handle, err := b64.DecodeString(o.User.ID)
 	if err != nil {
-		return nil, fmt.Errorf("softauthn: user id: %w", err)
+		return nil, fmt.Errorf("passkeytest: user id: %w", err)
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -148,7 +151,7 @@ func (a *Authenticator) SignIn(optionsJSON []byte) ([]byte, error) {
 		}
 	}
 	if cred == nil {
-		return nil, errors.New("softauthn: no passkey for these options")
+		return nil, errors.New("passkeytest: no passkey for these options")
 	}
 	cred.SignCount++
 	var auth bytes.Buffer
