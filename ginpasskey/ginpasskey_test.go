@@ -206,6 +206,86 @@ func TestAddSecondPasskeyNeedsFreshConfirmation(t *testing.T) {
 	want(t, status, out, 200, "")
 }
 
+// begin starts a ceremony and answers it on the device, without finishing it.
+func (a *app) begin(kind string, answer func([]byte) ([]byte, error)) map[string]any {
+	a.t.Helper()
+	status, out := a.call("POST", "/auth/passkey/"+kind+"/begin", nil)
+	want(a.t, status, out, 200, "")
+	opts, _ := json.Marshal(out["options"])
+	cred, err := answer(opts)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return map[string]any{"challengeId": out["challengeId"], "credential": json.RawMessage(cred)}
+}
+
+func TestAddPasskeyAfterTheSessionEndedIsNotASignUp(t *testing.T) {
+	var registered []bool
+	var n atomic.Int64
+	h := &ginpasskey.Handlers{
+		NewUser: func(_ *gin.Context, req ginpasskey.SignUp) (passkey.User, error) {
+			return passkey.User{ID: fmt.Sprintf("user-%d", n.Add(1)), Name: req.Name}, nil
+		},
+		OnRegistered: func(_ *gin.Context, _ *passkey.User, _ *passkey.Credential, created bool) error {
+			registered = append(registered, created)
+			return nil
+		},
+	}
+	a := newApp(t, nil, h)
+	a.signUp("ada")
+	finish := a.begin("register", softauthn.New(origin).Register)
+	status, _ := a.call("POST", "/auth/passkey/logout", nil) // the session ends between begin and finish
+	want(t, status, nil, 204, "")
+	status, out := a.call("POST", "/auth/passkey/register/finish", finish)
+	want(t, status, out, 401, string(passkey.CodeSessionRequired))
+	status, out = a.call("GET", "/auth/passkey/session", nil)
+	want(t, status, out, 401, string(passkey.CodeSessionRequired))
+	if len(registered) != 1 || n.Load() != 1 {
+		t.Fatalf("OnRegistered ran %v, NewUser %d times: want only the first sign-up", registered, n.Load())
+	}
+	creds, _ := a.svc.Credentials(t.Context(), "user-1")
+	if len(creds) != 1 {
+		t.Fatalf("%d credentials, want 1", len(creds))
+	}
+}
+
+func TestAddPasskeyAfterTheSessionLockedNeedsConfirm(t *testing.T) {
+	var registered []bool
+	h := &ginpasskey.Handlers{
+		NewUser: func(_ *gin.Context, req ginpasskey.SignUp) (passkey.User, error) {
+			return passkey.User{ID: "ada", Name: req.Name}, nil
+		},
+		OnRegistered: func(_ *gin.Context, _ *passkey.User, _ *passkey.Credential, created bool) error {
+			registered = append(registered, created)
+			return nil
+		},
+	}
+	a := newApp(t, func(c *passkey.Config) { c.ReconfirmAfter = time.Minute }, h)
+	a.signUp("ada")
+	before := a.client.Jar.Cookies(mustURL(a.srv.URL))
+	phone := softauthn.New(origin)
+	finish := a.begin("register", phone.Register)
+	a.now = a.now.Add(2 * time.Minute) // the session locks between begin and finish
+	status, out := a.call("POST", "/auth/passkey/register/finish", finish)
+	want(t, status, out, 401, string(passkey.CodeReconfirmRequired))
+	// Confirmed, the same finish goes through, for the same user, as an added passkey.
+	status, out = a.ceremony("confirm", a.auth.SignIn, nil, nil)
+	want(t, status, out, 200, "")
+	status, out = a.call("POST", "/auth/passkey/register/finish", finish)
+	want(t, status, out, 200, "")
+	if out["user"].(map[string]any)["id"] != "ada" || len(registered) != 2 || registered[1] {
+		t.Fatalf("answer %v, OnRegistered created %v", out, registered)
+	}
+	after := a.client.Jar.Cookies(mustURL(a.srv.URL))
+	if len(after) != 1 || after[0].Value != before[0].Value {
+		t.Fatal("adding a passkey started a new session")
+	}
+	creds, _ := a.svc.Credentials(t.Context(), "ada")
+	if len(creds) != 2 {
+		t.Fatalf("%d credentials, want 2", len(creds))
+	}
+}
+
 func TestSensitiveActionRoute(t *testing.T) {
 	a := newApp(t, func(c *passkey.Config) {
 		c.SensitiveActions = []string{"member.approve"}

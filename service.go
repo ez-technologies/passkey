@@ -133,6 +133,11 @@ func (s *Service) takeChallenge(ctx context.Context, id, kind string) (*Challeng
 	if err != nil {
 		return nil, nil, err
 	}
+	return s.checkChallenge(ch, kind)
+}
+
+// checkChallenge checks a taken challenge's kind and expiry and reads its WebAuthn data.
+func (s *Service) checkChallenge(ch *Challenge, kind string) (*Challenge, *webauthn.SessionData, error) {
 	if ch.Kind != kind || !s.cfg.Now().Before(ch.ExpiresAt) {
 		return nil, nil, errChallenge()
 	}
@@ -145,10 +150,32 @@ func (s *Service) takeChallenge(ctx context.Context, id, kind string) (*Challeng
 	return ch, &data, nil
 }
 
-// BeginRegistration starts making a passkey for u, a new or an existing user of your app (u.ID,
-// u.Name and u.DisplayName set; Handle is filled in by the library). It returns the challenge id
-// to send back with the finish, and the options for the browser.
+// Registration intents, kept with the challenge as its Kind: what begin was for is what finish does.
+const (
+	kindAddPasskey = "register" // a passkey for an existing, signed-in user
+	kindSignUp     = "signup"   // a new user, nobody signed in
+)
+
+// BeginRegistration starts adding a passkey to u, an existing user of your app who is signed in
+// (u.ID set; Name and DisplayName update the stored ones when set). Finish it with
+// FinishRegistration, passing the id of the user whose session finishes it. It returns the
+// challenge id to send back with the finish, and the options for the browser.
+//
+// For a new user, with nobody signed in, use BeginSignUp instead.
 func (s *Service) BeginRegistration(ctx context.Context, u User) (challengeID string, options Options, err error) {
+	return s.beginRegistration(ctx, u, kindAddPasskey)
+}
+
+// BeginSignUp starts making the first passkey of a new user (u.ID, u.Name and u.DisplayName set;
+// Handle is filled in by the library), while nobody is signed in. Finish it with FinishSignUp.
+//
+// u must be a NEW user: an existing user's id would let whoever calls this add a passkey to that
+// account. To add a passkey to an existing account, sign the person in and use BeginRegistration.
+func (s *Service) BeginSignUp(ctx context.Context, u User) (challengeID string, options Options, err error) {
+	return s.beginRegistration(ctx, u, kindSignUp)
+}
+
+func (s *Service) beginRegistration(ctx context.Context, u User, kind string) (string, Options, error) {
 	if strings.TrimSpace(u.ID) == "" {
 		return "", nil, apperr.Wrap(CodeBadRequest, fmt.Errorf("a user id is required: %w", apperr.ErrInvalidInput))
 	}
@@ -166,7 +193,7 @@ func (s *Service) BeginRegistration(ctx context.Context, u User) (challengeID st
 	if err != nil {
 		return "", nil, err
 	}
-	id, err := s.saveChallenge(ctx, "register", user.ID, data)
+	id, err := s.saveChallenge(ctx, kind, user.ID, data)
 	if err != nil {
 		return "", nil, err
 	}
@@ -208,21 +235,51 @@ func (s *Service) ensureUser(ctx context.Context, u User) (*User, error) {
 	return user, s.store.SaveUser(ctx, user)
 }
 
-// FinishRegistration checks what the device made (response is the JSON from startRegistration)
-// and stores the new credential under name.
+// FinishRegistration finishes a BeginRegistration: it checks what the device made (response is
+// the JSON from startRegistration) and stores the new credential under name.
 //
-// userID must be the user the registration began for. Pass "" to accept whoever it began for: that
-// is the sign-up case, where nobody is signed in yet and the challenge id (a secret only the browser
-// that began holds) is what ties the two steps together. The new credential's UserID says who it is.
+// userID is the user of the session that finishes it, and must be the user the registration began
+// for. Pass "" when there is no session: the answer is then CodeSessionRequired, never a sign-up,
+// and the challenge is used up. A challenge of BeginSignUp is refused (CodeChallengeExpired).
 func (s *Service) FinishRegistration(ctx context.Context, challengeID, userID string, response []byte, name string) (*Credential, error) {
-	ch, data, err := s.takeChallenge(ctx, challengeID, "register")
+	ch, data, err := s.takeChallenge(ctx, challengeID, kindAddPasskey)
 	if err != nil {
 		return nil, err
 	}
-	if userID != "" && ch.UserID != userID {
+	if userID == "" {
+		return nil, errSessionRequired()
+	}
+	if ch.UserID != userID {
 		return nil, errChallenge()
 	}
-	userID = ch.UserID
+	return s.finishRegistration(ctx, ch.UserID, data, response, name)
+}
+
+// FinishSignUp finishes a BeginSignUp, with nobody signed in: the challenge id (a secret only the
+// browser that began holds) is what ties the two steps together. The new credential's UserID says
+// who it is for; start a session for them with StartSession.
+//
+// A challenge of BeginRegistration (a passkey for a signed-in user) is never turned into a
+// sign-up: it is answered with CodeSessionRequired, so the person signs in again.
+func (s *Service) FinishSignUp(ctx context.Context, challengeID string, response []byte, name string) (*Credential, error) {
+	ch, err := s.store.TakeChallenge(ctx, challengeID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, errChallenge()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if ch.Kind == kindAddPasskey {
+		return nil, errSessionRequired()
+	}
+	_, data, err := s.checkChallenge(ch, kindSignUp)
+	if err != nil {
+		return nil, err
+	}
+	return s.finishRegistration(ctx, ch.UserID, data, response, name)
+}
+
+func (s *Service) finishRegistration(ctx context.Context, userID string, data *webauthn.SessionData, response []byte, name string) (*Credential, error) {
 	user, err := s.store.UserByID(ctx, userID)
 	if err != nil {
 		return nil, err

@@ -171,6 +171,58 @@ func TestFinishRegistrationForAnotherUser(t *testing.T) {
 	wantCode(t, err, passkey.CodeChallengeExpired)
 }
 
+func TestSignUp(t *testing.T) {
+	h := newHarness(t, nil)
+	ch, opts, err := h.svc.BeginSignUp(h.ctx, passkey.User{ID: "new", Name: "ada"})
+	must(t, err)
+	resp, err := h.auth.Register(opts)
+	must(t, err)
+	cred, err := h.svc.FinishSignUp(h.ctx, ch, resp, "Laptop")
+	must(t, err)
+	if cred.UserID != "new" || cred.Name != "Laptop" {
+		t.Fatalf("credential %+v", cred)
+	}
+}
+
+func TestAddPasskeyWithoutSessionIsNotASignUp(t *testing.T) {
+	h := newHarness(t, nil)
+	h.register("u1")
+	h.auth = softauthn.New(origin) // another device
+	// Without the user's session, finishing a passkey begun for them is never a sign-up.
+	for name, finish := range map[string]func(ch string, resp []byte) error{
+		"FinishRegistration": func(ch string, resp []byte) error {
+			_, err := h.svc.FinishRegistration(h.ctx, ch, "", resp, "")
+			return err
+		},
+		"FinishSignUp": func(ch string, resp []byte) error {
+			_, err := h.svc.FinishSignUp(h.ctx, ch, resp, "")
+			return err
+		},
+	} {
+		ch, opts, err := h.svc.BeginRegistration(h.ctx, passkey.User{ID: "u1"})
+		must(t, err)
+		resp, err := h.auth.Register(opts)
+		must(t, err)
+		h.auth.Credentials = nil
+		if err := finish(ch, resp); apperr.CodeOf(err) != passkey.CodeSessionRequired {
+			t.Fatalf("%s: got %v, want %s", name, err, passkey.CodeSessionRequired)
+		}
+	}
+	creds, _ := h.svc.Credentials(h.ctx, "u1")
+	if len(creds) != 1 {
+		t.Fatalf("%d credentials, want 1", len(creds))
+	}
+}
+
+func TestSignUpChallengeCannotAddToAUser(t *testing.T) {
+	h := newHarness(t, nil)
+	ch, opts, err := h.svc.BeginSignUp(h.ctx, passkey.User{ID: "new"})
+	must(t, err)
+	resp, _ := h.auth.Register(opts)
+	_, err = h.svc.FinishRegistration(h.ctx, ch, "new", resp, "")
+	wantCode(t, err, passkey.CodeChallengeExpired)
+}
+
 func TestChallengeWorksOnce(t *testing.T) {
 	h := newHarness(t, nil)
 	h.register("u1")

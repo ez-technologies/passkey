@@ -150,9 +150,9 @@ Without React, the same functions are plain imports: `register()`, `signIn()`, `
 
 ```
 browser                                   server
-  register({name})  ── register/begin ──▶  NewUser → BeginRegistration   (options + challenge id)
+  register({name})  ── register/begin ──▶  NewUser → BeginSignUp   (options + challenge id)
   device makes a passkey (fingerprint)
-                    ── register/finish ─▶  FinishRegistration → StartSession   (Set-Cookie)
+                    ── register/finish ─▶  FinishSignUp → StartSession   (Set-Cookie)
   signIn()          ── login/begin ─────▶  BeginLogin    (no user named: the device picks)
                     ── login/finish ────▶  FinishLogin → StartSession
   any API call      ─────────────────────▶ RequireSession ─ idle too long? ─▶ 401 reconfirm_required
@@ -164,6 +164,10 @@ browser                                   server
 - Every passkey is **discoverable** and needs **user verification**: sign-in asks for nothing typed,
   and the device always checks the person (fingerprint, face or PIN).
 - A challenge lives `ChallengeTimeout` and works **once** (the store takes it in one step).
+- A registration keeps **what it began for**: a sign-up (`BeginSignUp`, nobody signed in) or a
+  passkey for the signed-in user (`BeginRegistration`). If that user's session ended between begin
+  and finish, finish answers `passkey.session_required`; if it locked, `passkey.reconfirm_required`
+  (confirm, then send the same finish again). It never turns into a sign-up.
 - A sign-in whose signature counter did not go up (a copied passkey) is refused.
 - Every failed sign-in has the same answer (`passkey.rejected`), so it tells nothing about who has
   a passkey.
@@ -282,6 +286,10 @@ The `passkey.Service` methods take a `context.Context`, an `*http.Request` or an
 
 ```go
 sess, err := svc.Session(ctx, r)                  // live session, or CodeSessionRequired / CodeReconfirmRequired
+// Registration: a sign-up (nobody signed in) or a passkey for the signed-in user. Each finish holds
+// to what its begin was for.
+id, opts, err := svc.BeginSignUp(ctx, newUser)    // then svc.FinishSignUp(ctx, id, response, name)
+id, opts, err = svc.BeginRegistration(ctx, user)  // then svc.FinishRegistration(ctx, id, sess.UserID, response, name)
 err = svc.CheckFresh(sess, "member.approve")      // nil, or CodeConfirmationRequired
 http.Error(w, err.Error(), passkey.HTTPStatus(err)) // 401 / 403 / 400 / 500
 ```
