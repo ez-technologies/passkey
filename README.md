@@ -274,7 +274,7 @@ cleared as new ones are made, so there is no sweeper to run.
 
 ### Your own storage
 
-Implement `passkey.Store` (users, credentials, sessions, challenges, codes; seventeen small
+Implement `passkey.Store` (users, credentials, sessions, challenges, codes; sixteen small
 methods) on whatever database you have, then let the conformance suite check it:
 
 ```go
@@ -287,6 +287,30 @@ func TestMyStore(t *testing.T) {
 
 The suite checks every method, including that a challenge and a code can each be used by only one
 of several requests racing for it.
+
+### Keeping your own sessions and users
+
+An app that already has its own sessions, user table and one-time codes needs only the WebAuthn
+ceremonies. `passkey.Ceremonies` is those, on `passkey.CeremonyStore`: seven methods for users,
+credentials and challenges, nothing to refuse. It creates no users: the user must exist, and
+your store says what their `Handle` is, so the handles your people's devices already hold stay.
+
+```go
+cer, err := passkey.NewCeremonies(cfg, myStore) // cfg: RPID, RPName, Origins; cookies and policy do not apply
+
+id, options, err := cer.BeginRegistration(ctx, userID)
+// Extra reaches myStore.AddCredential, to write your own columns with the credential in one write.
+cred, err := cer.FinishRegistration(ctx, id, userID, response, passkey.NewCredential{Name: "Phone", Extra: myFields})
+
+id, options, err = cer.BeginLogin(ctx)
+user, cred, err := cer.FinishLogin(ctx, id, response)
+
+id, options, err = cer.BeginConfirm(ctx, userID)
+cred, err = cer.FinishConfirm(ctx, userID, id, response) // what the session should do about it is yours
+```
+
+A signature counter that did not go up is refused either way; set `Config.OnCredentialCopied` to end
+that passkey and its sessions, or to tell someone.
 
 ### Cookie options
 
@@ -371,6 +395,7 @@ The package documentation has a runnable example.
 | `ChallengeTimeout` | 5 minutes | Time allowed between a ceremony's begin and finish. |
 | `TouchEvery` | 1 minute | How rarely a session's last-active time is written (kept below `ReconfirmAfter`). |
 | `CodeLength` | 10 | Characters in a one-time code (about 49 bits). |
+| `OnCredentialCopied` | none | Called when a passkey's signature counter did not go up: the passkey may be a copy. The sign-in is refused either way. |
 | `Now` | `time.Now` | Clock, for tests. |
 
 `ginpasskey.Handlers`:

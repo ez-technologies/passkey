@@ -275,6 +275,27 @@ func TestCopiedPasskeyIsRejected(t *testing.T) {
 	wantCode(t, err, passkey.CodeRejected)
 }
 
+func TestCopiedPasskeyIsReportedToTheApp(t *testing.T) {
+	var got *passkey.Credential
+	h := newHarness(t, func(c *passkey.Config) {
+		c.OnCredentialCopied = func(_ context.Context, cred passkey.Credential) { got = &cred }
+	})
+	cred := h.register("u1")
+	_, _, err := h.signIn()
+	must(t, err)
+	if got != nil {
+		t.Fatal("a normal sign-in reported a copy")
+	}
+	_, _, err = h.signIn()
+	must(t, err)
+	h.auth.Credentials[0].SignCount = 0
+	_, _, err = h.signIn()
+	wantCode(t, err, passkey.CodeRejected)
+	if got == nil || string(got.ID) != string(cred.ID) {
+		t.Fatalf("the copied passkey was not reported: %+v", got)
+	}
+}
+
 func TestTamperedResponseIsRejected(t *testing.T) {
 	h := newHarness(t, nil)
 	h.register("u1")
