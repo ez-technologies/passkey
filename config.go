@@ -1,6 +1,7 @@
 package passkey
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -42,6 +43,11 @@ type Config struct {
 	TouchEvery time.Duration
 	// CodeLength is the number of characters of a one-time code. Default 10 (about 49 bits).
 	CodeLength int
+
+	// OnCredentialCopied, when set, is called when a passkey's signature counter did not go up: the
+	// passkey may have been copied. The sign-in is refused either way; this is where the app ends
+	// the passkey and its sessions, or tells someone.
+	OnCredentialCopied func(ctx context.Context, c Credential)
 
 	// Now returns the current time. Default time.Now; tests set it.
 	Now func() time.Time

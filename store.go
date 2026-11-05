@@ -36,6 +36,10 @@ type Credential struct {
 	Name       string
 	CreatedAt  time.Time
 	LastUsedAt time.Time
+	// Extra is what the app passed in NewCredential, handed to the store's AddCredential so it can
+	// write the app's own columns with the credential, in one write. The library never reads or
+	// keeps it, and it is nil on a credential read back from a store.
+	Extra any
 }
 
 // Session is a signed-in browser.
@@ -77,13 +81,11 @@ type Code struct {
 	UsedAt    *time.Time
 }
 
-// Store is where the library keeps its data. Implement it on your own database, or use the
-// memstore or gormstore packages. The storetest package checks an implementation.
+// CeremonyStore is the part of a store the WebAuthn ceremonies use. An app that keeps its own
+// users, sessions and one-time codes implements only this, and uses Ceremonies.
 //
 // Methods that look something up return ErrNotFound when it does not exist.
-type Store interface {
-	// SaveUser creates or updates a user, keyed by ID.
-	SaveUser(ctx context.Context, u *User) error
+type CeremonyStore interface {
 	UserByID(ctx context.Context, id string) (*User, error)
 	UserByHandle(ctx context.Context, handle []byte) (*User, error)
 
@@ -92,6 +94,21 @@ type Store interface {
 	Credentials(ctx context.Context, userID string) ([]Credential, error)
 	// UpdateCredential writes SignCount, BackupState and LastUsedAt of the credential with c.ID.
 	UpdateCredential(ctx context.Context, c *Credential) error
+
+	SaveChallenge(ctx context.Context, c *Challenge) error
+	// TakeChallenge returns a challenge and removes it, in one step: a challenge works once.
+	TakeChallenge(ctx context.Context, id string) (*Challenge, error)
+}
+
+// Store is where the library keeps its data. Implement it on your own database, or use the
+// memstore or gormstore packages. The storetest package checks an implementation.
+//
+// Methods that look something up return ErrNotFound when it does not exist.
+type Store interface {
+	CeremonyStore
+
+	// SaveUser creates or updates a user, keyed by ID.
+	SaveUser(ctx context.Context, u *User) error
 	DeleteCredential(ctx context.Context, userID string, credentialID []byte) error
 
 	CreateSession(ctx context.Context, s *Session) error
@@ -101,10 +118,6 @@ type Store interface {
 	DeleteSession(ctx context.Context, id string) error
 	// DeleteUserSessions ends every session of a user.
 	DeleteUserSessions(ctx context.Context, userID string) error
-
-	SaveChallenge(ctx context.Context, c *Challenge) error
-	// TakeChallenge returns a challenge and removes it, in one step: a challenge works once.
-	TakeChallenge(ctx context.Context, id string) (*Challenge, error)
 
 	CreateCode(ctx context.Context, c *Code) error
 	// RedeemCode marks the code with this hash used at now and returns it, in one step, only if it
